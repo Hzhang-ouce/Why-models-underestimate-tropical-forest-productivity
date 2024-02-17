@@ -1,0 +1,310 @@
+{\rtf1\ansi\ansicpg936\cocoartf2639
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Optima-Regular;\f1\fmodern\fcharset0 Courier;}
+{\colortbl;\red255\green255\blue255;\red251\green2\blue7;\red85\green142\blue40;\red0\green0\blue0;
+\red0\green0\blue0;\red25\green25\blue25;}
+{\*\expandedcolortbl;;\cssrgb\c100000\c14913\c0;\cssrgb\c39975\c61335\c20601;\cssrgb\c0\c0\c0\c87059;
+\cssrgb\c0\c0\c0\c7451;\cssrgb\c12941\c12941\c12941;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww33100\viewh17700\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs36 \cf2 # R codes\cf0 \
+# Huanyuan - Xiongjie  FAPAR & GPP & Time Series\
+\
+library(tidyverse)\
+# so xiongjie helps to download fapar from MODIS using GEE, now I just need to plot it with R\
+setwd('/Users/dengxiongjie/Downloads/Oxford/Plots/')\
+Raw_csv<-read_csv('Plot Points Data.csv')\
+std.error <- function(x) sd(x)/sqrt(length(x))\
+Processed_csv<-Raw_csv%>%\
+  rowwise()%>%\
+  mutate( FparQC_binary=paste(rev(as.integer(intToBits(FparLai_QC))), collapse=""),\
+          # convert to binary\
+          FparQC_binary = stringi::stri_sub(FparQC_binary,-8,-1),\
+          # only last 8 digits are meaningful, remove other 0 at the start of the string\
+          CLOUDSTATE = as.numeric(substr(FparQC_binary,4,5)),\
+          # extract cloud state, 00 denote no cloud\
+          month = substr(date,6,7),\
+          # extract month from the 6th and 7th digits\
+          site = substr(name,1,3))%>%\
+          # extract site from the 1st to 3rd digits\
+  group_by(month, site)%>%\
+  mutate(number_measured = n(),\
+         #number of measurements under a month and plot\
+         number_no_cloud = sum(CLOUDSTATE==0,na.rm=T),\
+         # number of no clound measurements\
+         percentage_of_no_clound = number_no_cloud/number_measured)%>%\
+  group_by(month, site)%>%\
+  summarise(Fpar_500m_mean = mean(Fpar_500m, na.rm=T),\
+            Fpar_500m_se = std.error(Fpar_500m),\
+            percentage_of_no_clound=mean(percentage_of_no_clound))\
+\
+# Units of FAPAR: %\
+\
+# Plot the result\
+library(ggplot2)\
+Processed_csv%>%\
+  mutate(month = as.numeric(month))%>%\
+ggplot() +\
+  geom_line(aes(x = month, y = Fpar_500m_mean)) +\
+  geom_point(aes(x = month, y = Fpar_500m_mean)) +\
+  geom_rect(aes(xmin = month - 0.5, xmax = month + 0.5, ymin = 0, ymax = 80, fill = percentage_of_no_clound), alpha = 0.5) +\
+  facet_wrap(~site, nrow = 3, ncol = 1) +\
+  scale_x_continuous(breaks = seq(1, 12, 1), labels = c("January", "February", "March", "April", "May", "June",\
+                                                         "July", "August", "September", "Octobe", "November", "December")) +\
+  ylab("FAPAR mean (%)") +\
+  scale_fill_continuous(name = "Percentage of \\nno cloud data") +\
+  theme_bw() +\
+  theme(panel.grid = element_blank())\
+\
+\
+\cf2 # GEE codes\cf0 \
+\cf3 # GPP BOB\
+\cf0 # import: 
+\f1\fs26 \cf4 \cb5 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec4 users/xjdeng112121/VISIT_npp_FINAL_MEAN_as_example_for_xiongjie
+\f0\fs36 \cf0 \cb1 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 ; BOB rectangular\
+var gpp = ee.ImageCollection("MODIS/006/MOD17A2H")   // GPP Product\
+            .filterDate("2001-01-01", "2020-12-31")\
+            .select("Gpp");                                                          // Select the \'93Gpp\'94 band\
+\
+Map.centerObject(BOB, 10);\
+\
+var GPPBOB = gpp.mean().multiply(46.625);                     // Convert units from \cf6 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec6 kg*C/m^2/d to kg*C/m^2/y (46.625 = 365/8)\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 \
+\
+Map.addLayer(GPPBOB.clip(BOB), \{\}, "GPP BOB");\
+\
+Export.image.toDrive(\{\
+  image: GPPBOB.clip(BOB),\
+  description: "GPP BOB",\
+  scale: 500,\
+  region: BOB,\
+  folder: "GhanaXiongjieHuanyuan"\
+\});\
+\
+\
+\cf3 # GPP\
+\cf0 // Ankasa\
+var Ankasa = ee.Geometry.MultiPoint (\
+  [\
+    [-2.69364, 5.2678675],     // ANK-1\
+    [-2.695035, 5.268485],     // ANK-2\
+    [-2.69234, 5.27102],       // ANK-3\
+  ]);\
+  \
+var ANK01 = ee.Geometry.Point([-2.69364, 5.2678675]);\
+var ANK02 = ee.Geometry.Point([-2.695035, 5.268485]);\
+var ANK03 = ee.Geometry.Point([-2.69234, 5.27102]);\
+\
+// Bobiri\
+var Bobiri = ee.Geometry.MultiPoint (\
+  [\
+    [-1.3190675, 6.70471325],  // BOB-1\
+    [-1.338429, 6.691469575],  // BOB-2\
+    [-1.293695, 6.69453075],   // BOB-3\
+    [-1.3170375, 6.69096],     // BOB-4\
+    [-1.3072695, 6.69260575],  // BOB-5\
+    [-1.3070005, 6.6913675]    // BOB-6\
+  ]);\
+\
+var BOB01 = ee.Geometry.Point([-1.3190675, 6.70471325]);\
+var BOB02 = ee.Geometry.Point([-1.338429, 6.691469575]);\
+var BOB03 = ee.Geometry.Point([-1.293695, 6.69453075]);\
+var BOB04 = ee.Geometry.Point([-1.3170375, 6.69096]);\
+var BOB05 = ee.Geometry.Point([-1.3072695, 6.69260575]);\
+var BOB06 = ee.Geometry.Point([-1.3070005, 6.6913675]);\
+\
+// Kogyae\
+var Kogyae = ee.Geometry.MultiPoint (\
+  [\
+    [-1.14995275, 7.262316],   // KOG-2\
+    [-1.1564455, 7.3067915],   // KOG-3\
+    [-1.180213, 7.3026435],    // KOG-4\
+    [-1.164546, 7.3053405],    // KOG-5\
+    [-1.15578, 7.3294225]      // KOG-6\
+  ]);\
+\
+var KOG02 = ee.Geometry.Point([-1.14995275, 7.262316]);\
+var KOG03 = ee.Geometry.Point([-1.1564455, 7.3067915]);\
+var KOG04 = ee.Geometry.Point([-1.180213, 7.3026435]);\
+var KOG05 = ee.Geometry.Point([-1.164546, 7.3053405]);\
+var KOG06 = ee.Geometry.Point([-1.15578, 7.3294225]);\
+\
+// GPP\
+var GPP = ee.ImageCollection("MODIS/006/MOD17A2H")       // GPP Product\
+            .filterDate("2001-01-01", "2020-12-31")\
+            .select("Gpp", "Psn_QC");\
+\
+// ANK 3 points\
+var ANK01PointsData = GPP.toBands().reduceRegions(ANK01, ee.Reducer.mean(), 500);\
+var ANK02PointsData = GPP.toBands().reduceRegions(ANK02, ee.Reducer.mean(), 500);\
+var ANK03PointsData = GPP.toBands().reduceRegions(ANK03, ee.Reducer.mean(), 500);\
+\
+// BOB 6 points\
+var BOB01PointsData = GPP.toBands().reduceRegions(BOB01, ee.Reducer.mean(), 500);\
+var BOB02PointsData = GPP.toBands().reduceRegions(BOB02, ee.Reducer.mean(), 500);\
+var BOB03PointsData = GPP.toBands().reduceRegions(BOB03, ee.Reducer.mean(), 500);\
+var BOB04PointsData = GPP.toBands().reduceRegions(BOB04, ee.Reducer.mean(), 500);\
+var BOB05PointsData = GPP.toBands().reduceRegions(BOB05, ee.Reducer.mean(), 500);\
+var BOB06PointsData = GPP.toBands().reduceRegions(BOB06, ee.Reducer.mean(), 500);\
+\
+// KOG 5 points\
+var KOG02PointsData = GPP.toBands().reduceRegions(KOG02, ee.Reducer.mean(), 500);\
+var KOG03PointsData = GPP.toBands().reduceRegions(KOG03, ee.Reducer.mean(), 500);\
+var KOG04PointsData = GPP.toBands().reduceRegions(KOG04, ee.Reducer.mean(), 500);\
+var KOG05PointsData = GPP.toBands().reduceRegions(KOG05, ee.Reducer.mean(), 500);\
+var KOG06PointsData = GPP.toBands().reduceRegions(KOG06, ee.Reducer.mean(), 500);\
+\
+// Merge points\
+var pts = ee.FeatureCollection(ee.List([ee.Feature(ANK01).set("name", "ANK01"),     // ANK\
+                                        ee.Feature(ANK02).set("name", "ANK02"),\
+                                        ee.Feature(ANK03).set("name", "ANK03"),\
+                                        ee.Feature(BOB01).set("name", "BOB01"),     // BOB\
+                                        ee.Feature(BOB02).set("name", "BOB02"),\
+                                        ee.Feature(BOB03).set("name", "BOB03"),\
+                                        ee.Feature(BOB04).set("name", "BOB04"),\
+                                        ee.Feature(BOB05).set("name", "BOB05"),\
+                                        ee.Feature(BOB06).set("name", "BOB06"),\
+                                        ee.Feature(KOG02).set("name", "KOG02"),     // KOG\
+                                        ee.Feature(KOG03).set("name", "KOG03"),\
+                                        ee.Feature(KOG04).set("name", "KOG04"),\
+                                        ee.Feature(KOG05).set("name", "KOG05"),\
+                                        ee.Feature(KOG06).set("name", "KOG06"),\
+                                       ]));\
+\
+var ft = ee.FeatureCollection(ee.List([]));\
+\
+var fill = function(img, ini) \{\
+  var inift = ee.FeatureCollection(ini);\
+  var ft2 = img.sampleRegions(\{\
+    collection: pts,\
+    properties: ee.List(["name"]),\
+    scale: 500,\
+  \});\
+  var date = img. date().format()\
+  var ft3 = ft2.map(function(f)\{return f.set("date", date)\})\
+  return inift.merge(ft3)\
+\}\
+\
+var newft = ee.FeatureCollection(GPP.iterate(fill, ft))\
+\
+// Export\
+Export.table.toDrive(\{\
+  collection: newft,\
+  description: "PlotPointsDataGPP",\
+  fileFormat: "CSV"\
+\});\
+\
+\
+\cf3 # FAPAR\
+\cf0 // Ankasa\
+var Ankasa = ee.Geometry.MultiPoint (\
+  [\
+    [-2.69364, 5.2678675],     // ANK-1\
+    [-2.695035, 5.268485],     // ANK-2\
+    [-2.69234, 5.27102],       // ANK-3\
+  ]);\
+  \
+var ANK01 = ee.Geometry.Point([-2.69364, 5.2678675]);\
+var ANK02 = ee.Geometry.Point([-2.695035, 5.268485]);\
+var ANK03 = ee.Geometry.Point([-2.69234, 5.27102]);\
+\
+// Bobiri\
+var Bobiri = ee.Geometry.MultiPoint (\
+  [\
+    [-1.3190675, 6.70471325],  // BOB-1\
+    [-1.338429, 6.691469575],  // BOB-2\
+    [-1.293695, 6.69453075],   // BOB-3\
+    [-1.3170375, 6.69096],     // BOB-4\
+    [-1.3072695, 6.69260575],  // BOB-5\
+    [-1.3070005, 6.6913675]    // BOB-6\
+  ]);\
+\
+var BOB01 = ee.Geometry.Point([-1.3190675, 6.70471325]);\
+var BOB02 = ee.Geometry.Point([-1.338429, 6.691469575]);\
+var BOB03 = ee.Geometry.Point([-1.293695, 6.69453075]);\
+var BOB04 = ee.Geometry.Point([-1.3170375, 6.69096]);\
+var BOB05 = ee.Geometry.Point([-1.3072695, 6.69260575]);\
+var BOB06 = ee.Geometry.Point([-1.3070005, 6.6913675]);\
+\
+// Kogyae\
+var Kogyae = ee.Geometry.MultiPoint (\
+  [\
+    [-1.14995275, 7.262316],   // KOG-2\
+    [-1.1564455, 7.3067915],   // KOG-3\
+    [-1.180213, 7.3026435],    // KOG-4\
+    [-1.164546, 7.3053405],    // KOG-5\
+    [-1.15578, 7.3294225]      // KOG-6\
+  ]);\
+\
+var KOG02 = ee.Geometry.Point([-1.14995275, 7.262316]);\
+var KOG03 = ee.Geometry.Point([-1.1564455, 7.3067915]);\
+var KOG04 = ee.Geometry.Point([-1.180213, 7.3026435]);\
+var KOG05 = ee.Geometry.Point([-1.164546, 7.3053405]);\
+var KOG06 = ee.Geometry.Point([-1.15578, 7.3294225]);\
+\
+// FAPAR\
+var FAPAR = ee.ImageCollection("MODIS/061/MOD15A2H")   // Fpar Product\
+            .filterDate("2001-01-01", "2020-12-31")\
+            .select("Fpar_500m", "Lai_500m", "FparLai_QC");\
+\
+// ANK 3 points\
+var ANK01PointsData = FAPAR.toBands().reduceRegions(ANK01, ee.Reducer.mean(), 500);\
+var ANK02PointsData = FAPAR.toBands().reduceRegions(ANK02, ee.Reducer.mean(), 500);\
+var ANK03PointsData = FAPAR.toBands().reduceRegions(ANK03, ee.Reducer.mean(), 500);\
+\
+// BOB 6 points\
+var BOB01PointsData = FAPAR.toBands().reduceRegions(BOB01, ee.Reducer.mean(), 500);\
+var BOB02PointsData = FAPAR.toBands().reduceRegions(BOB02, ee.Reducer.mean(), 500);\
+var BOB03PointsData = FAPAR.toBands().reduceRegions(BOB03, ee.Reducer.mean(), 500);\
+var BOB04PointsData = FAPAR.toBands().reduceRegions(BOB04, ee.Reducer.mean(), 500);\
+var BOB05PointsData = FAPAR.toBands().reduceRegions(BOB05, ee.Reducer.mean(), 500);\
+var BOB06PointsData = FAPAR.toBands().reduceRegions(BOB06, ee.Reducer.mean(), 500);\
+\
+// KOG 5 points\
+var KOG02PointsData = FAPAR.toBands().reduceRegions(KOG02, ee.Reducer.mean(), 500);\
+var KOG03PointsData = FAPAR.toBands().reduceRegions(KOG03, ee.Reducer.mean(), 500);\
+var KOG04PointsData = FAPAR.toBands().reduceRegions(KOG04, ee.Reducer.mean(), 500);\
+var KOG05PointsData = FAPAR.toBands().reduceRegions(KOG05, ee.Reducer.mean(), 500);\
+var KOG06PointsData = FAPAR.toBands().reduceRegions(KOG06, ee.Reducer.mean(), 500);\
+\
+// Merge points\
+var pts = ee.FeatureCollection(ee.List([ee.Feature(ANK01).set("name", "ANK01"),     // ANK\
+                                        ee.Feature(ANK02).set("name", "ANK02"),\
+                                        ee.Feature(ANK03).set("name", "ANK03"),\
+                                        ee.Feature(BOB01).set("name", "BOB01"),     // BOB\
+                                        ee.Feature(BOB02).set("name", "BOB02"),\
+                                        ee.Feature(BOB03).set("name", "BOB03"),\
+                                        ee.Feature(BOB04).set("name", "BOB04"),\
+                                        ee.Feature(BOB05).set("name", "BOB05"),\
+                                        ee.Feature(BOB06).set("name", "BOB06"),\
+                                        ee.Feature(KOG02).set("name", "KOG02"),     // KOG\
+                                        ee.Feature(KOG03).set("name", "KOG03"),\
+                                        ee.Feature(KOG04).set("name", "KOG04"),\
+                                        ee.Feature(KOG05).set("name", "KOG05"),\
+                                        ee.Feature(KOG06).set("name", "KOG06"),\
+                                       ]));\
+\
+var ft = ee.FeatureCollection(ee.List([]));\
+\
+var fill = function(img, ini) \{\
+  var inift = ee.FeatureCollection(ini);\
+  var ft2 = img.sampleRegions(\{\
+    collection: pts,\
+    properties: ee.List(["name"]),\
+    scale: 500,\
+  \});\
+  var date = img. date().format()\
+  var ft3 = ft2.map(function(f)\{return f.set("date", date)\})\
+  return inift.merge(ft3)\
+\}\
+\
+var newft = ee.FeatureCollection(FAPAR.iterate(fill, ft))\
+\
+// Export\
+Export.table.toDrive(\{\
+  collection: newft,\
+  description: "Plot Points Data",\
+  fileFormat: "CSV"\
+\});\
+}
